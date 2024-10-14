@@ -2,7 +2,10 @@
 
 
 __global__ void whoami() {
-
+    int block_id = blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.y * gridDim.x;
+    int block_offset = block_id * blockDim.x * blockDim.y * blockDim.z;
+    int thread_offset = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.y * blockDim.x;
+    printf("global thread id %d\n", block_offset + thread_offset);
 }
 
 int main() {
@@ -13,4 +16,5 @@ int main() {
    dim3 grid_dim(g_x, g_y, g_z);
 
    whoami<<<grid_dim, block_dim>>>();
+   cudaDeviceSynchronize();
 }
