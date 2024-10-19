@@ -4,7 +4,7 @@
 #include <math.h>
 
 
-#define N 10e6
+#define N 1e7
 #define BLOCK_SIZE 1024
 #define DELTA 1e-5
 
@@ -17,9 +17,10 @@ void cpu_add(float *a, float *b, float *c, int n) {
 
 
 __global__ void cuda_add(float *a, float *b, float *c, int n) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
 
-    if (i < n) {
+    for (int i = index; i <= n; i += stride) {
         c[i] = a[i] + b[i];
     }
 }
