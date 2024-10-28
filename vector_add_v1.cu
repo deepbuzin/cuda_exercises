@@ -17,10 +17,9 @@ void cpu_add(float *a, float *b, float *c, int n) {
 
 
 __global__ void cuda_add(float *a, float *b, float *c, int n) {
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    int stride = gridDim.x * blockDim.x;
-
-    for (int i = index; i <= n; i += stride) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    if (i < n) {
         c[i] = a[i] + b[i];
     }
 }
@@ -55,10 +54,12 @@ int main() {
     cudaMemcpy(d_a, h_a, size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b, h_b, size, cudaMemcpyHostToDevice);
 
+    int grid_size = ceil(N / BLOCK_SIZE);
+
     // 1. warmup
     for (int i = 0; i < 20; i++) {
         cpu_add(h_a, h_b, h_c, N);
-        cuda_add<<<2, BLOCK_SIZE>>>(d_a, d_b, d_c, N);
+        cuda_add<<<grid_size, BLOCK_SIZE>>>(d_a, d_b, d_c, N);
         cudaDeviceSynchronize();
     }
 
@@ -79,7 +80,7 @@ int main() {
 
     for (int i = 0; i < 20; i++) {
         double start_time = time(NULL);
-        cuda_add<<<2, BLOCK_SIZE>>>(d_a, d_b, d_c, N);
+        cuda_add<<<grid_size, BLOCK_SIZE>>>(d_a, d_b, d_c, N);
         cudaDeviceSynchronize();
         cuda_total_time += time(NULL) - start_time;
     }
@@ -89,7 +90,7 @@ int main() {
 
     // 4. compare outputs
     cpu_add(h_a, h_b, h_c, N);
-    cuda_add<<<2, BLOCK_SIZE>>>(d_a, d_b, d_c, N);
+    cuda_add<<<grid_size, BLOCK_SIZE>>>(d_a, d_b, d_c, N);
     cudaDeviceSynchronize();
 
     cudaMemcpy(h_c_cuda, d_c, size, cudaMemcpyDeviceToHost);
