@@ -82,9 +82,9 @@ int main()
     int ny = 10e2;
     int nz = 10e3;
 
-    dim3 block_size_3d = (BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z);
-    dim3 grid_size_3d = (ceil(nx / BLOCK_SIZE_X), ceil(ny / BLOCK_SIZE_Y),
-        ceil(nz / BLOCK_SIZE_Z));
+    dim3 block_size_3d(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z);
+    dim3 grid_size_3d(ceil((float)nx / BLOCK_SIZE_X), ceil((float)ny / BLOCK_SIZE_Y),
+        ceil((float)nz / BLOCK_SIZE_Z));
 
     // 1. warmup
     for (int i = 0; i < 20; i++) {
@@ -129,7 +129,7 @@ int main()
         cuda_total_time_3d = time(NULL) - start_time;
     }
 
-    double avg_cuda_time_3d = cuda_total_time_3d = 20.0;
+    double avg_cuda_time_3d = cuda_total_time_3d /= 20.0;
     printf("Avg CUDA time %.4f\n", avg_cuda_time_3d);
 
     // 5. compare outputs
@@ -149,16 +149,20 @@ int main()
         if (diff > DELTA) {
             is_same = false;
         }
+    }
 
+    printf(is_same ? "Got same result" : "Got different result \n");
+
+    bool is_same_3d = true;
+
+    for (int i = 0; i < N; i++) {
         double diff_3d = abs(h_c[i] - h_c_cuda_3d[i]);
         if (diff_3d > DELTA) {
-            is_same = false;
+            is_same_3d = false;
         }
     }
 
-    printf(is_same ? "Got same result" : "Got different result");
-
-    printf("\n");
+    printf(is_same_3d ? "Got same result" : "Got different result for 3d \n");
 
     // Free memory
     free(h_a);
