@@ -3,13 +3,6 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define N 1e7
-
-#define BLOCK_SIZE_1D 1024
-#define BLOCK_SIZE_X 16
-#define BLOCK_SIZE_Y 8
-#define BLOCK_SIZE_Z 8
-
 #define DELTA 1e-5
 
 void cpu_add(float* a, float* b, float* c, int n)
@@ -38,10 +31,10 @@ __global__ void cuda_add_3d(float* a, float* b, float* c, int nx, int ny,
     // Figure out if we're still within data bounds
     if (i < nx && j < ny && k < nz) {
         // Calculate index within 1d vector
-        int idx = i + nx * j + ny * nx * k;
+        int tid = i + nx * j + ny * nx * k;
 
-        if (idx < nx * ny * nz) {
-            c[idx] = a[idx] + b[idx];
+        if (tid < nx * ny * nz) {
+            c[tid] = a[tid] + b[tid];
         }
     }
 }
@@ -54,8 +47,27 @@ void init_vector(float* v, int n)
 
 int main()
 {
+    // Define data dims
+
+    int N = 10e8;
+
+    int nx = 10e2;
+    int ny = 10e3;
+    int nz = 10e3;
+
+    int block_dim = 1024;
+    dim3 block_dim_3d(16, 8, 8);
+
+    int grid_dim = ceil(N / block_dim);
+    dim3 grid_dim_3d(
+        ceil(nx / block_dim_3d.x),
+        ceil(ny / block_dim_3d.y),
+        ceil(nz / block_dim_3d.z));
+
+    // Define vars and allocate memory
+
     float *h_a, *h_b, *h_c, *h_c_cuda, *h_c_cuda_3d;
-    float *d_a, *d_b, *d_c;
+    float *d_a, *d_b, *d_c, *d_c_3d;
     size_t size = N * sizeof(float);
 
     h_a = (float*)malloc(size);
@@ -67,6 +79,9 @@ int main()
     cudaMalloc(&d_a, size);
     cudaMalloc(&d_b, size);
     cudaMalloc(&d_c, size);
+    cudaMalloc(&d_c_3d, size);
+
+    // Init and move to GPU
 
     srand(time(NULL));
 
@@ -76,25 +91,17 @@ int main()
     cudaMemcpy(d_a, h_a, size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_b, h_b, size, cudaMemcpyHostToDevice);
 
-    int grid_size_1d = ceil(N / BLOCK_SIZE_1D);
+    // 1. Warmup
 
-    int nx = 10e2;
-    int ny = 10e2;
-    int nz = 10e3;
-
-    dim3 block_size_3d(BLOCK_SIZE_X, BLOCK_SIZE_Y, BLOCK_SIZE_Z);
-    dim3 grid_size_3d(ceil((float)nx / BLOCK_SIZE_X), ceil((float)ny / BLOCK_SIZE_Y),
-        ceil((float)nz / BLOCK_SIZE_Z));
-
-    // 1. warmup
     for (int i = 0; i < 20; i++) {
         cpu_add(h_a, h_b, h_c, N);
-        cuda_add<<<grid_size_1d, BLOCK_SIZE_1D>>>(d_a, d_b, d_c, N);
-        cuda_add_3d<<<grid_size_3d, block_size_3d>>>(d_a, d_b, d_c, nx, ny, nz);
+        cuda_add<<<grid_dim, block_dim>>>(d_a, d_b, d_c, N);
+        cuda_add_3d<<<grid_dim_3d, block_dim_3d>>>(d_a, d_b, d_c_3d, nx, ny, nz);
         cudaDeviceSynchronize();
     }
 
-    // 2. cpu
+    // 2. CPU
+
     double cpu_total_time = 0.0;
 
     for (int i = 0; i < 20; i++) {
@@ -106,12 +113,13 @@ int main()
     double avg_cpu_time = cpu_total_time /= 20.0;
     printf("Avg CPU time %.4f\n", avg_cpu_time);
 
-    // 3. gpu
+    // 3. CUDA
+
     double cuda_total_time = 0.0;
 
     for (int i = 0; i < 20; i++) {
         double start_time = time(NULL);
-        cuda_add<<<grid_size_1d, BLOCK_SIZE_1D>>>(d_a, d_b, d_c, N);
+        cuda_add<<<grid_dim, block_dim>>>(d_a, d_b, d_c, N);
         cudaDeviceSynchronize();
         cuda_total_time += time(NULL) - start_time;
     }
@@ -119,28 +127,30 @@ int main()
     double avg_cuda_time = cuda_total_time /= 20.0;
     printf("Avg CUDA time %.4f\n", avg_cuda_time);
 
-    // 4. gpu 3d
+    // 4. CUDA 3d
+    
     double cuda_total_time_3d = 0.0;
 
     for (int i = 0; i < 20; i++) {
         double start_time = time(NULL);
-        cuda_add_3d<<<grid_size_3d, block_size_3d>>>(d_a, d_b, d_c, nx, ny, nz);
+        cuda_add_3d<<<grid_dim_3d, block_dim_3d>>>(d_a, d_b, d_c_3d, nx, ny, nz);
         cudaDeviceSynchronize();
         cuda_total_time_3d = time(NULL) - start_time;
     }
 
     double avg_cuda_time_3d = cuda_total_time_3d /= 20.0;
-    printf("Avg CUDA time %.4f\n", avg_cuda_time_3d);
+    printf("Avg CUDA 3d time %.4f\n", avg_cuda_time_3d);
 
-    // 5. compare outputs
+    // 5. Compare outputs
+
     cpu_add(h_a, h_b, h_c, N);
     cudaDeviceSynchronize();
 
-    cuda_add<<<grid_size_1d, BLOCK_SIZE_1D>>>(d_a, d_b, d_c, N);
+    cuda_add<<<grid_dim, block_dim>>>(d_a, d_b, d_c, N);
     cudaMemcpy(h_c_cuda, d_c, size, cudaMemcpyDeviceToHost);
 
-    cuda_add_3d<<<grid_size_3d, block_size_3d>>>(d_a, d_b, d_c, nx, ny, nz);
-    cudaMemcpy(h_c_cuda_3d, d_c, size, cudaMemcpyDeviceToHost);
+    cuda_add_3d<<<grid_dim_3d, block_dim_3d>>>(d_a, d_b, d_c_3d, nx, ny, nz);
+    cudaMemcpy(h_c_cuda_3d, d_c_3d, size, cudaMemcpyDeviceToHost);
 
     bool is_same = true;
 
@@ -162,7 +172,7 @@ int main()
         }
     }
 
-    printf(is_same_3d ? "Got same result" : "Got different result for 3d \n");
+    printf(is_same_3d ? "Got same result 3d" : "Got different result for 3d \n");
 
     // Free memory
     free(h_a);
@@ -173,4 +183,5 @@ int main()
     cudaFree(d_a);
     cudaFree(d_b);
     cudaFree(d_c);
+    cudaFree(d_c_3d);
 }
